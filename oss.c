@@ -6,12 +6,13 @@ int GenerateRandomNumber();
 int main(int argc, char ** argv)
 {
 
-	int defaultNumProcesses = 18;
+	int defaultNumProcesses = 3;
 	int minusCounter = defaultNumProcesses;
 	int maxTimeBetweenNewProcsNS = 0;
 	int maxTimeBetweenNewProcesSecs = 0;
 	int pid = 0;
 	int pida = 0;
+	int aliveChilds = 0;
 	int * pcb; 
 	int status = 0;
 	char ** argToPass = (char**)malloc(sizeof(char*)*2);
@@ -46,6 +47,7 @@ int main(int argc, char ** argv)
 		else if(pid == 0)
 		{
 			char * st;
+			printf("Created child %d\n", getpid());
 			st = (char*)malloc(sizeof(char) * 8);
 			sprintf(st, "%d", shmid);
 			strcpy(argToPass[0],st);
@@ -58,8 +60,9 @@ int main(int argc, char ** argv)
 		{
 			printf("Sent off child to do stuff\n");
 			pcb[i*2] = pid;
-			pcb[(i*2)+1] = 5;
+			pcb[(i*2)+1] = 15;
 			shmdt(pcb);
+			aliveChilds++;
 
 		}
 	}
@@ -68,36 +71,58 @@ int main(int argc, char ** argv)
 	{
 		//everyone gets a turn
 		pcb = (int*)shmat(shmid, NULL, 0);
-		pcb[((defaultNumProcesses - minusCounter)*2)] = pcb[((defaultNumProcesses - minusCounter)*2)] - 1;
+		pcb[((defaultNumProcesses - minusCounter)*2)+1] = pcb[((defaultNumProcesses - minusCounter)*2)+1] - 1;
 		shmdt(pcb);
 		
 		for(i = 0; i < defaultNumProcesses; i++)
 		{
-			pida = waitpid(pida, &status, WNOHANG);
+			pcb = (int*)shmat(shmid, NULL, 0);
+			pida = waitpid(pcb[i*2], &status, WNOHANG);
+			shmdt(pcb);
 			if(pida == -1)
 			{
 
 			}
 			else if(pida == 0)
 			{
-				printf("child still running %d\n", pida);
+				pcb = (int*)shmat(shmid, NULL, 0);
+				printf("child still running %d\n", pcb[i*2]);
+				shmdt(pcb);
 			}
 			else if(pida > 0)
 			{
 				printf("child is finished %d\n", pida);
+				aliveChilds--;
+					
 			}
-	
 		}
+	
+		
 
 		exitFlag = 1;
 		for(i = 0; i < defaultNumProcesses && exitFlag == 1; i++)
 		{
+			pcb = (int*)shmat(shmid, NULL, 0);
 			if(pcb[((defaultNumProcesses - minusCounter)*2)+1] > 0)
 				exitFlag = 0;
+			shmdt(pcb);
 		}
-		minusCounter = minusCounter - 1;
 
-	}while(exitFlag == 0);
+
+		
+		minusCounter = minusCounter - 1;
+		if(minusCounter == 0)
+		{
+			minusCounter = defaultNumProcesses;
+		}
+
+	}while(aliveChilds > 0);
+
+	
+	if(shmctl(shmid, IPC_RMID, NULL) < 0)
+		fprintf(stderr, "Shared memory was not deallocated: remove it manually\n");
+
+	
 
 	return 0;
 } 
